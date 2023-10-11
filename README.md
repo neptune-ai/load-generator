@@ -1,5 +1,25 @@
 # Load generator to Neptune Server
 
+
+## Installation and setup
+
+Please install the latest vesrion of neptune client (release candidate)
+```
+pip install neptune==1.8.3rc1
+```
+
+You need to remember about setting neptune token and project enviroments. *Use the token of the Neptune instance you want to use*.
+```
+export NEPTUNE_API_TOKEN="YOUR TOKEN"
+export NEPTUNE_PROJECT="YOUR PROJECT" # "dzwiedziu/load-test"
+```
+
+It is also advice to increase a limit of open files (neptune-client has separate sync-files for each run).
+```
+ulimit -Sn 1000000
+```
+
+
 ## Example configurations
 
 
