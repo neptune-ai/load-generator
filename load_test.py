@@ -139,7 +139,7 @@ def perform_load_test(n, steps, atoms, series, indexed_split, step_time, run_nam
       total_puts = int(puts_per_step * steps)
 
       msg = 'Steps on disk {}/{} ({:.2f}%). '.format(i, steps-1, (i+1)/steps * 100)
-      msg = msg + 'Operations syncronized with NPT server {}/{} ({:.2f}%)'.format(acks, total_puts, acks/total_puts * 100)
+      msg = msg + 'Operations synchronized with NPT server {}/{} ({:.2f}%)'.format(acks, total_puts, acks/total_puts * 100)
       log.info(msg)
       
       if after-before > step_time:
