@@ -2,9 +2,11 @@ import argparse
 import concurrent.futures
 import math
 import multiprocessing as mp
+import os
 import random
 import string
 import time
+
 
 
 
@@ -66,7 +68,36 @@ def log_indexed_metrics(run, step, n, seed=0):
     run["metrics/{}".format(name)].append(value)
 
 
-def perform_load_test(n, steps, atoms, series, indexed_split, epoch_time, run_name='', threads=8, group_name='', color=''):
+# hacky way to understand if where we are in syncing run
+def _get_sync_position(runs):
+  last_puts = []
+  last_acks = []
+
+  for run in runs:
+
+    path = '.neptune/async/run__{}'.format(run._id)
+    os.listdir(path)
+    path = os.path.join(path, os.listdir(path)[0])
+
+    # trying a few times to avoid race conditions
+    for i in range(0,1000):
+      try:
+        with open(os.path.join(path, 'last_ack_version'), 'r') as f:
+          last_ack = int(f.read().split('\n')[0])
+        with open(os.path.join(path, 'last_put_version'), 'r') as f:      
+          last_put = int(f.read().split('\n')[0])
+        last_acks.append(last_ack)
+        last_puts.append(last_put)
+        break
+      except ValueError:
+        pass
+
+  sum_puts = sum(last_puts)
+  sum_acks = sum(last_acks)
+  return sum_acks, sum_puts
+
+
+def perform_load_test(n, steps, atoms, series, indexed_split, step_time, run_name='', threads=8, group_name='', color=''):
 
   import logging
   
@@ -89,20 +120,35 @@ def perform_load_test(n, steps, atoms, series, indexed_split, epoch_time, run_na
   # log indexed atoms
   for j in range(n):
     log_indexed_atoms(runs[j], int(atoms * indexed_split), j)
+  
+  _, initial_puts = _get_sync_position(runs)
 
 
   for i in range(0, steps):                                                                                                                                                                                          
       before = time.monotonic()
+      # log step data
       for j in range(n):                                                                                                                                                                                      
         log_not_indexed_atoms(runs[j], i, int(atoms * (1-indexed_split)))
         log_not_indexed_metrics(runs[j], i, int(series * (1-indexed_split)))
-        log_indexed_metrics(runs[j], i, int(series * indexed_split), j)                                                                                                                                                                              
+        log_indexed_metrics(runs[j], i, int(series * indexed_split), j)
       after = time.monotonic() 
-      log.info('Epoch {}/{} of {} runs was submitted to sync process ({}s)'.format(i+1, steps, n, after - before))                                                                                                                                                     
-      if after - before > epoch_time:                                                                                                                                                                                         
-          log.info('Epoch {}/{} did not manage to fit into epoch time {} > {}!'.format(i+1, steps, after - before, epoch_time))
-      time.sleep(max(epoch_time - (after - before), 0))                                                                                                                                                                       
-                                                                                                                                                                                                                    
+
+      acks, puts = _get_sync_position(runs)
+      acks -= initial_puts
+      puts_per_step = (puts - initial_puts) / (i+1)
+      total_puts = int(puts_per_step * steps)
+
+      msg = 'Steps on disk {}/{} ({:.2f}%). '.format(i, steps-1, (i+1)/steps * 100)
+      msg = msg + 'Operations synchronized with NPT server {}/{} ({:.2f}%)'.format(acks, total_puts, acks/total_puts * 100)
+      log.info(msg)
+      
+      if after-before > step_time:
+         logging.warn('Writing to a disk is laggging behind. Consider increasing step_time {} -> {:.2f}'.format(step_time, after-before))
+
+      time.sleep(max(step_time - (after - before), 0))                                                                                                                                                                       
+
+
+
   wt = time.monotonic()                                                                                                                                                                                              
 
   with concurrent.futures.ThreadPoolExecutor(max_workers=threads) as executor:
@@ -126,26 +172,25 @@ if __name__ == "__main__":
   argparse.add_argument("--runs", type=int, default=1, help='number of runs to perform per process')
   argparse.add_argument("--atoms", type=int, default=0)
   argparse.add_argument("--series", type=int, default=0)
-  argparse.add_argument("--epoch-time", type=int, default=1)
+  argparse.add_argument("--step-time", type=int, default=1)
   argparse.add_argument("--indexed-split", type=float, default=0.1, help='split of indexed metrics and atoms vs not indexed')
   argparse.add_argument("--run-name", type=str, default='')
   argparse.add_argument("--threads", type=int, help='per process to initialize, sync and close runs', default=8)
   argparse.add_argument("--processes", type=int, help='number of processes. In total we will log runs * processes', default=1)
   args = argparse.parse_args()
 
-
   steps = args.steps
   n = args.runs
   atoms = args.atoms
   series = args.series
-  epoch_time = args.epoch_time
+  step_time = args.step_time
   threads = args.threads
   run_name = args.run_name
   num_processes = args.processes
   indexed_split = args.indexed_split
 
   assert(num_processes > 0 and num_processes <= 160)
-  assert(indexed_split * (atoms + series) <= 9000) # 9000 is a limit of neptune
+  assert(indexed_split * (atoms + series) <= 9800) # 9800 is a limit of neptune, but
   
   colors = [] 
   for fg in range(30,38):
@@ -158,7 +203,7 @@ if __name__ == "__main__":
 
   processes = [
      mp.Process(target=perform_load_test, args=(
-        n, steps, atoms, series, indexed_split, epoch_time, '{}-group-{}'.format(run_name, i), threads, i, colors[i % len(colors)])
+        n, steps, atoms, series, indexed_split, step_time, '{}-group-{}'.format(run_name, i), threads, i, colors[i % len(colors)])
         ) for i in range(num_processes)]
   
   for i in range(num_processes):
