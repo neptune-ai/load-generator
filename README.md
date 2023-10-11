@@ -14,7 +14,7 @@ export NEPTUNE_API_TOKEN="YOUR TOKEN"
 export NEPTUNE_PROJECT="YOUR PROJECT" # "dzwiedziu/load-test"
 ```
 
-It is also advice to increase a limit of open files (neptune-client has separate sync-files for each run).
+It is also adviced to increase a limit of open files (neptune-client has separate sync-files for each run).
 ```
 ulimit -Sn 1000000
 ```
