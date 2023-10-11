@@ -1,4 +1,12 @@
-# Load generator to Neptune Server
+# 1. Functional test to Neptune Server
+
+- Export  the following Environmen variables:
+  - ```export NEPTUNE_PROJECT=<Your Project>```
+  - ```export NEPTUNE_API_TOKEN=<Your API Token>```
+- Run the following script:
+  - ```python3 functional_test.py```
+
+# 2. Load generator to Neptune Server
 
 ## Example configurations
 
