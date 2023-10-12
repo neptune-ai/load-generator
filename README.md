@@ -13,7 +13,7 @@
 
 Please install the latest vesrion of neptune client (release candidate)
 ```
-pip install neptune==1.8.3rc1
+pip install neptune==1.8.3rc2
 ```
 
 You need to remember about setting neptune token and project enviroments. *Use the token of the Neptune instance you want to use*.
@@ -34,20 +34,20 @@ ulimit -Sn 1000000
 20 runs, sending 20 steps every 10 seconds, in each step 100 series and 100 atoms
 
 ```
-python3 load_test.py --processes=4 --runs 5 --steps 20 --series 100 --atoms 100 --step-time=10 --threads=1 --run-name='warmup' --indexed-split=0.5
+python3 load_generator.py --processes=4 --runs 5 --steps 20 --series 100 --atoms 100 --step-time=10 --run-name='warmup' --indexed-split=0.5  > /dev/null
 ```
 
 
 100 runs, sending 20 steps every 25 seconds, in each step 5000 series and 100 atoms
 
 ```
-python3 load_test.py --processes=10 --runs 10 --steps 20 --series 5000 --atoms 100 --step-time=25 --threads=1 --run-name='low 100x5000' --indexed-split=0.5
+python3 load_generator.py --processes=10 --runs 10 --steps 20 --series 5000 --atoms 100 --step-time=25 --run-name='low 100x5000' --indexed-split=0.5  > /dev/null
 ```
 
 200 runs, sending 100 steps every 25 seconds, in each step 9000 series and 500 atoms
 
 ```
-python3 load_test.py --processes=20 --runs 10 --steps 20 --series 9000 --atoms 500 --step-time=25 --threads=1 --run-name='medium 200x9500' --indexed-split=0.5
+python3 load_generator.py --processes=20 --runs 10 --steps 20 --series 9000 --atoms 500 --step-time=25 --run-name='medium 200x9500' --indexed-split=0.5  > /dev/null
 ```
 
 
@@ -56,5 +56,23 @@ python3 load_test.py --processes=20 --runs 10 --steps 20 --series 9000 --atoms 5
 This may be too big to be executed on one machine / laptop.
 
 ```
-python3 load_test.py --processes=120 --runs 10 --steps 144 --series 9500 --atoms 100 --step-time=25 --threads=1 --run-name='high 1200x9500' --indexed-split=0.5
+python3 load_generator.py --processes=120 --runs 10 --steps 144 --series 9500 --atoms 100 --step-time=25 --run-name='high 1200x9500' --indexed-split=0.5 > /dev/null
 ```
+
+## 100K attributes runs
+
+For bigger runs you may want to use experimental version of Neptune Client, that parallelize the syncronization process of a run.
+```
+pip install git+https://github.com/neptune-ai/neptune-client.git@partitioned
+```
+
+Normally, you also need to set env variables but in this case, load generator will do it for you via setting `--sync-partitions=4` flag.
+```
+export NEPTUNE_MODE=experimental
+export NEPTUNE_ASYNC_PARTITIONS_NUMBER=8
+```
+
+Check it out
+```
+ python3 load_generator.py --processes=5 --runs 5 --steps 20 --series 99000 --atoms 1000 --step-time=25 --run-name='100k 5x5 runs' --indexed-split=0.1 --sync-partitions=8 > /dev/null
+ ```
