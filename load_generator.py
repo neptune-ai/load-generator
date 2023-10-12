@@ -56,7 +56,7 @@ def log_indexed_metrics(run, step, n, seed=0):
     value = 0
     if i%4 == 0:
       # value of sin with period 10 steps with noise [-0.1, 0.1]
-      value = math.sin(step/10) + r_vals.random() * 0.2 - 0.1
+      value = math.sin((step - offset * 0.1) / 10) + r_vals.random() * 0.2 - 0.1
     elif i%4 == 1:
       # value of log steps with noise [-0.1, 0.1]
       value = math.log(step + 0.1) + r_vals.random() * 0.2 - 0.1
@@ -204,7 +204,7 @@ if __name__ == "__main__":
   argparse.add_argument("--runs", type=int, default=1, help='number of runs to perform per process')
   argparse.add_argument("--atoms", type=int, default=0)
   argparse.add_argument("--series", type=int, default=0)
-  argparse.add_argument("--step-time", type=int, default=1)
+  argparse.add_argument("--step-time", type=float, default=1.0)
   argparse.add_argument("--indexed-split", type=float, default=0.1, help='split of indexed metrics and atoms vs not indexed')
   argparse.add_argument("--run-name", type=str, default='')
   argparse.add_argument("--sync-partitions", type=int, help='(experimental) number of threads per run used to sync with NPT servers', default=1)
