@@ -72,7 +72,12 @@ export NEPTUNE_MODE=experimental
 export NEPTUNE_ASYNC_PARTITIONS_NUMBER=8
 ```
 
-Check it out
+Check it out with 4 runs
 ```
- python3 load_generator.py --processes=5 --runs 5 --steps 20 --series 99000 --atoms 1000 --step-time=25 --run-name='100k 5x5 runs' --indexed-split=0.1 --sync-partitions=8 > /dev/null
+ python3 load_generator.py --processes=2 --runs 2 --steps 20 --series 99000 --atoms 100 --step-time=25 --run-name='100k 2x2 runs' --indexed-split=0.1 --sync-partitions=12 > /dev/null
+ ```
+
+And now with 25 runs
+```
+ python3 load_generator.py --processes=5 --runs 5 --steps 20 --series 99000 --atoms 100 --step-time=25 --run-name='100k 5x5 runs' --indexed-split=0.1 --sync-partitions=8 > /dev/null
  ```
