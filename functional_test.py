@@ -72,7 +72,7 @@ def add_100_fields(run):
 if __name__ == "__main__":
 
     print("Running 1M length series test...")
-    runs = [neptune.init_run() for i in range(10)]
+    runs = [neptune.init_run(enable_remote_signals=False) for i in range(10)]
     for run in runs:
         add_chart_1M(run)
     for run in runs:
@@ -80,7 +80,7 @@ if __name__ == "__main__":
     print("1M length series test finished")
 
     print("Running 10K length series test...")
-    runs = [neptune.init_run() for i in range(200)]
+    runs = [neptune.init_run(enable_remote_signals=False) for i in range(200)]
     for run in runs:
         add_chart_10K(run)
     for run in runs:
@@ -88,13 +88,13 @@ if __name__ == "__main__":
     print("10K length series test finished")
 
     print("Running 100K fields test...")
-    run = neptune.init_run()
+    run = neptune.init_run(enable_remote_signals=False)
     add_100K_fields(run)
     run.stop()
     print("100K fields test finished")
 
     print("Running Artifact / File Upload test...")
-    run = neptune.init_run()
+    run = neptune.init_run(enable_remote_signals=False)
     run["artifact"].track_files("./random.png")
     run["fie"].upload("./random.png")
     run.stop()
