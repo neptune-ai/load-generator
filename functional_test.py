@@ -1,18 +1,15 @@
 import neptune
 import random
+import string
 
 
 def add_chart_1M(run):
     namespace = "metrics/loss_1M"
     num_steps = 1000000
-    lr = 0.0005
     decay = 0.9995
-    decay_flip = 0.999995
     init_metric = 0.98
 
     floor = 0.2 + (random.random() - 0.5) * 0.15
-    ceiling = floor + random.random() * 0.2
-    flip = num_steps * 0.5 - random.random() * num_steps * 0.2
     anomaly_step = int(random.uniform(0.3, 0.6) * num_steps)
     fluctuation = init_metric - floor
 
@@ -34,14 +31,10 @@ def add_chart_1M(run):
 def add_chart_10K(run):
     namespace = "metrics/loss_10K"
     num_steps = 10000
-    lr = 0.0005
     decay = 0.9995
-    decay_flip = 0.999995
     init_metric = 0.98
 
     floor = 0.2 + (random.random() - 0.5) * 0.15
-    ceiling = floor + random.random() * 0.2
-    flip = 100000  # num_steps*0.5 - random.random()*num_steps*0.2
     anomaly_step = int(random.uniform(0.3, 0.6) * num_steps)
     fluctuation = init_metric - floor
 
