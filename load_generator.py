@@ -166,6 +166,7 @@ def perform_load_test(n, steps, atoms, series, indexed_split, step_time, run_nam
   while True:
     acks, puts = _get_sync_position(runs)  
     if started_puts != puts:
+      started_puts = puts
       log.warn('Disk is a bottleneck. Consider increasing the step_time or decrease number of runs.')
     elif acks == puts:
       break
