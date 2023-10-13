@@ -161,11 +161,13 @@ def perform_load_test(n, steps, atoms, series, indexed_split, step_time, run_nam
   # waiting for all data being flashed to a disk
   time.sleep(10)
   sync_started_time = time.monotonic()
-  started_acks, puts = _get_sync_position(runs)
+  started_acks, started_puts = _get_sync_position(runs)
   
   while True:
-    acks, _ = _get_sync_position(runs)  
-    if acks == puts:
+    acks, puts = _get_sync_position(runs)  
+    if started_puts != puts:
+      log.warn('Disk is a bottleneck. Consider increasing the step_time or decrease number of runs.')
+    elif acks == puts:
       break
     else:
       if acks > started_acks:
