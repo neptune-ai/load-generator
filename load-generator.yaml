@@ -1,0 +1,31 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: load-generator
+  labels:
+    app: load-generator
+spec:
+  replicas: 8
+  selector:
+    matchLabels:
+      app: load-generator
+  template:
+    metadata:
+      labels:
+        app: load-generator
+    spec:
+      containers:
+      - name: ghcr.io/neptune-ai/load-generator:0.0.1
+        image: load-generator:latest
+        command: ["python3", "load_generator.py"]
+        args: ["--processes=20", "--runs", "10", "--steps", "20",
+               "--series", "9900", "--atoms", "10", "--step-time=25",
+               "--run-name='load-test 4m x 400x9900'", "--indexed-split=0.9",
+               "--sync-partitions=8", ">", "/dev/null"]
+        env:
+          - name: NEPTUNE_ALLOW_SELF_SIGNED_CERTIFICATE
+            value: "1"
+          - name: NEPTUNE_API_TOKEN
+            value: "<ADD TOKEN HERE>"
+          - name: NEPTUNE_PROJECT
+            value: "load2"
