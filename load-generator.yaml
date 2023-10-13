@@ -1,22 +1,24 @@
-apiVersion: apps/v1
-kind: Deployment
+apiVersion: batch/v1
+kind: Job
 metadata:
   name: load-generator
   labels:
     app: load-generator
 spec:
-  replicas: 8
-  selector:
-    matchLabels:
-      app: load-generator
+  backoffLimit: 0
+  completionMode: NonIndexed
+  completions: 8
+  parallelism: 8
+  suspend: false
   template:
     metadata:
       labels:
         app: load-generator
     spec:
+      restartPolicy: Never
       containers:
-      - name: ghcr.io/neptune-ai/load-generator:0.0.1
-        image: load-generator:latest
+      - name: load-generator
+        image: ghcr.io/neptune-ai/load-generator:0.0.1
         command: ["python3", "load_generator.py"]
         args: ["--processes=20", "--runs", "10", "--steps", "20",
                "--series", "9900", "--atoms", "10", "--step-time=25",
@@ -29,3 +31,7 @@ spec:
             value: "<ADD TOKEN HERE>"
           - name: NEPTUNE_PROJECT
             value: "load2"
+        resources:
+          requests:
+            cpu: "14"
+            memory: 30000Mi
