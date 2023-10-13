@@ -139,7 +139,8 @@ def perform_load_test(n, steps, atoms, series, indexed_split, step_time, run_nam
         log_not_indexed_metrics(runs[j], i, int(series * (1-indexed_split)))
         log_indexed_metrics(runs[j], i, int(series * indexed_split), j)
       after = time.monotonic() 
-
+      time.sleep(max(step_time - (after - before), 0))
+      
       acks, puts = _get_sync_position(runs)
       acks -= initial_puts
       puts_per_step = (puts - initial_puts) / (i+1)
@@ -147,16 +148,16 @@ def perform_load_test(n, steps, atoms, series, indexed_split, step_time, run_nam
 
       elapsed_time = after - start_time
       eta_time = elapsed_time / (i+1) * (steps - i - 1)
-
-      msg = 'Steps on disk {}/{} ({:.2f}%). Elapsed {} - ETA {}. '.format(
-        i, steps-1, (i+1)/steps * 100, _seconds_to_hms(elapsed_time), _seconds_to_hms(eta_time))
-      msg = msg + 'Operations synchronized with NPT server {}/{} ({:.2f}%)'.format(acks, total_puts, acks/total_puts * 100)
-      log.info(msg)
-      
-      if after-before > step_time:
-         logging.warn('Writing to a disk is lagging. Consider increasing the step_time {} -> {:.2f}'.format(step_time, after-before))
-
-      time.sleep(max(step_time - (after - before), 0))
+      if total_puts > 0:
+        msg = 'Steps on disk {}/{} ({:.2f}%). Elapsed {} - ETA {}. '.format(
+          i, steps-1, (i+1)/steps * 100, _seconds_to_hms(elapsed_time), _seconds_to_hms(eta_time))
+        msg = msg + 'Operations synchronized with NPT server {}/{} ({:.2f}%)'.format(acks, total_puts, acks/total_puts * 100)
+        log.info(msg)
+        
+        if after-before > step_time:
+            logging.warn('Writing to a disk is lagging. Consider increasing the step_time {} -> {:.2f}'.format(step_time, after-before))
+      else:
+        log.info('No puts yet')
   
   # waiting for all data being flashed to a disk
   time.sleep(10)
@@ -181,7 +182,7 @@ def perform_load_test(n, steps, atoms, series, indexed_split, step_time, run_nam
       else:
         eta_msg = ''
       log.info('Synchronizing {}/{} ({:.2f}%). {}'.format(acks, puts, acks/puts * 100, eta_msg)) 
-      time.sleep(10)
+    time.sleep(10)
 
   stop_started_time = time.monotonic()
 
