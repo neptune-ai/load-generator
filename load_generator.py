@@ -224,7 +224,7 @@ if __name__ == "__main__":
   assert(series + atoms <= 99900)
   assert(int(subprocess.check_output("ulimit -n", shell=True)) > 2000)
   assert(num_processes * n <= 1200)
-  assert(num_processes * n * sync_partitions <= 2400)
+  assert(num_processes * n * sync_partitions <= 10000)
   assert(num_processes > 0 and num_processes <= 160)
   assert(indexed_split * (atoms + series) <= 10000) # 10000 is a limit of indexed fields at NPT server
 
