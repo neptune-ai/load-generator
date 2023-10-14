@@ -7,6 +7,7 @@ import os
 import random
 import string
 import subprocess
+import sys
 import time
 
 
@@ -104,7 +105,9 @@ def _get_sync_position(runs):
 def _seconds_to_hms(seconds):
   return '{}:{:02d}:{:02d}'.format(int(seconds // 3600), int((seconds % 3600) // 60), int(seconds % 60))
 
-def perform_load_test(n, steps, atoms, series, indexed_split, step_time, run_name='', sync_partitions=1, group_name='', color=''):
+def perform_load_test(n, steps, atoms, series, indexed_split, step_time, run_name='', sync_partitions=1,
+                      randomize_start=False, group_seed=0, group_name='', color=''):
+
   logging.getLogger("urllib3.connectionpool").setLevel(logging.ERROR)
 
   log_format = '{}Group={}\x1b[0m - %(levelname)s - %(message)s'.format(color, group_name)
@@ -119,7 +122,12 @@ def perform_load_test(n, steps, atoms, series, indexed_split, step_time, run_nam
   else:
     os.environ.pop('NEPTUNE_MODE', None)
     os.environ.pop('NEPTUNE_ASYNC_PARTITIONS_NUMBER', None)
-
+  
+  g_random = random.Random(group_seed)
+  if randomize_start:
+    time_to_start= g_random.random() * step_time
+    log.warn('Waiting for {:.2f} seconds to start'.format(time_to_start))
+    time.sleep(time_to_start)
   runs = [_initialize_run(run_name) for _ in range(n)]
 
   start_time = time.monotonic()                                                                                                                                                                                              
@@ -213,6 +221,8 @@ if __name__ == "__main__":
   argparse.add_argument("--run-name", type=str, default='')
   argparse.add_argument("--sync-partitions", type=int, help='(experimental) number of threads per run used to sync with NPT servers', default=1)
   argparse.add_argument("--processes", type=int, help='number of processes. In total we will log runs * processes', default=1)
+  argparse.add_argument("--randomize-start", type=bool, help='randomize start of each run', default=False)
+
   args = argparse.parse_args()
 
   steps = args.steps
@@ -224,6 +234,7 @@ if __name__ == "__main__":
   run_name = args.run_name
   num_processes = args.processes
   indexed_split = args.indexed_split
+  randomize_start = args.randomize_start
 
   assert(series + atoms <= 99900)
   assert(int(subprocess.check_output("ulimit -n", shell=True)) > 2000)
@@ -254,7 +265,7 @@ if __name__ == "__main__":
 
   processes = [
      mp.Process(target=perform_load_test, args=(
-        n, steps, atoms, series, indexed_split, step_time, '{}-group-{}'.format(run_name, i), sync_partitions, i, colors[i % len(colors)])
+        n, steps, atoms, series, indexed_split, step_time, '{}-group-{}'.format(run_name, i), sync_partitions, randomize_start, int(i+time.monotonic()*20), i, colors[i % len(colors)])
         ) for i in range(num_processes)]
   
   for i in range(num_processes):
