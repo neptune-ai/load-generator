@@ -85,7 +85,7 @@ def _get_sync_position(runs):
       # we are not usign partitions
       partitions = ['']
     for p in partitions:
-      for i in range(0,10000):
+      for i in range(0,200):
         try:
           with open(os.path.join(path, p, 'last_ack_version'), 'r') as f:
             last_ack = int(f.read().split('\n')[0])
@@ -95,7 +95,7 @@ def _get_sync_position(runs):
           last_puts.append(last_put)
           break
         except ValueError:
-          time.sleep(0.01)
+          time.sleep(0.001)
 
   sum_puts = sum(last_puts)
   sum_acks = sum(last_acks)
@@ -133,7 +133,7 @@ def _manual_sync_runs(runs, disk_flashing_time=8, probe_time=1, logger=None, pha
       else:
         eta_msg = ''
       if logger:
-        logger.info('Synchronizing {} phase: {}/{} ({:.2f}%). {}'.format(phase, acks, puts, acks/puts * 100, eta_msg)) 
+        logger.info('Synchronizing {} phase: {}/{}({:.2f}%). {}'.format(phase, acks, puts, acks/puts * 100, eta_msg)) 
     time.sleep(probe_time)
   
   stop_started_time = time.monotonic()
@@ -179,6 +179,7 @@ def perform_load_test(n, steps, atoms, series, indexed_split, step_time, run_nam
   sync_after_definitions_time = -1
   sync_after_definitions_time_msg = '?'
   disk_bottleneck_info = False
+  last_operation_info_time = time.monotonic()
 
   for i in range(0, steps):                                                                                                                                                                                          
       before = time.monotonic()
@@ -201,7 +202,10 @@ def perform_load_test(n, steps, atoms, series, indexed_split, step_time, run_nam
         msg = 'Steps on disk {}/{} ({:.2f}%). Elapsed {} - ETA {}. '.format(
           i, steps-1, (i+1)/steps * 100, _seconds_to_hms(elapsed_time), _seconds_to_hms(eta_time))
         msg = msg + 'Operations synchronized with NPT server {}/{} ({:.2f}%)'.format(acks, total_puts, acks/total_puts * 100)
-        log.info(msg)
+        
+        if i % ((steps/100)+1) == 0 or i == steps-1 or last_operation_info_time + 10 < time.monotonic():
+          last_operation_info_time = time.monotonic()
+          log.info(msg)
         
         if after-before > step_time:
             if not disk_bottleneck_info:
