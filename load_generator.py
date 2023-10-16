@@ -1,3 +1,7 @@
+
+
+
+
 import argparse
 import math
 import multiprocessing as mp
@@ -138,32 +142,23 @@ def _get_sync_progress(runs, partitions_per_run, offset=0, progress_history=None
     eta = "infinite"
     eta_time = -1000000000
   else:
-    eta = _seconds_to_hms((progress_history['puts'][-1] - progress_history['acks'][-1]) / progress_history['speed_avg'][0])
     eta_time = (progress_history['puts'][-1] - progress_history['acks'][-1]) / progress_history['speed_avg'][0]
-
+    eta = _seconds_to_hms(eta_time)
+    if eta_time < 25:
+      eta_color = '\033[92m'  # green
+    else:
+      eta_color = '\033[91m'  # red
+    eta = '{}{}{}'.format(eta_color, eta, '\033[0m')
   
-  requests_time = 1000 / progress_history['speed'][-1][0] * partitions_per_run if progress_history['speed'][-1][0] > 0 else 0
-  avg_request_time = 1000 / progress_history['speed_avg'][0] * partitions_per_run if progress_history['speed_avg'][0] > 0 else 0
-  
-  if requests_time < 6:
-    requests_color = '\033[92m'  # green
-  elif requests_time < 10:
-    requests_color = '\033[93m'  # yellow
+  ops_left = progress_history['puts'][-1] - progress_history['acks'][-1]
+  if ops_left < 30000:
+    ops_left = '\033[92m{}\033[0m'.format(ops_left)  # green
   else:
-    requests_color = '\033[91m'  # red
+    ops_left = '\033[91m{}\033[0m'.format(ops_left)  # red
 
-  if avg_request_time < 6:
-    avg_requests_color = '\033[92m'  # green
-  elif avg_request_time < 10:
-    avg_requests_color = '\033[93m'  # yellow
-  else:
-    avg_requests_color = '\033[91m'  # red
-
-  msg_requests_info = 'Requests take {}{:.2f}{} ({}{:.2f}{}s)'.format(requests_color, requests_time, '\033[0m', avg_requests_color, avg_request_time, '\033[0m')
-  msg = 'Syncronization: ACK in last 60s {:.2f} (avg {:.2f}) ops/s. {}.  {} ops left to sync, sync ETA {}'.format(
+  msg = 'Sync: ACK in last 60s {:7.1f} (avg {:7.1f}) ops/s. {:7} ops left to sync, sync ETA {}'.format(
     progress_history['speed'][-1][0], progress_history['speed_avg'][0],
-    msg_requests_info,
-    progress_history['puts'][-1] - progress_history['acks'][-1],
+    ops_left,
     eta
   )
   return msg, eta_time, progress_history
@@ -175,6 +170,7 @@ def _manual_sync_runs(runs, sync_partitions, disk_flashing_time=8, probe_time=1,
   sync_started_time = time.monotonic()
   started_acks, started_puts = _get_sync_position(runs, sync_offset)
   disk_bottleneck_info = False
+  last_log_time = 0
   while True:
     acks, puts = _get_sync_position(runs, sync_offset)  
     if started_puts != puts:
@@ -186,8 +182,9 @@ def _manual_sync_runs(runs, sync_partitions, disk_flashing_time=8, probe_time=1,
     elif acks == puts:
       break
     else:
-      sync_progress_msg, _, sync_progress_history = _get_sync_progress(runs, sync_partitions, sync_offset, sync_progress_history)
-      if logger:
+      if logger and last_log_time + 10 < time.monotonic():
+        last_log_time = time.monotonic()
+        sync_progress_msg, _, sync_progress_history = _get_sync_progress(runs, sync_partitions, sync_offset, sync_progress_history)
         logger.info('Synchronizing {} phase: {}'.format(phase, sync_progress_msg)) 
     time.sleep(probe_time)
   
@@ -197,14 +194,11 @@ def _manual_sync_runs(runs, sync_partitions, disk_flashing_time=8, probe_time=1,
   logger.info('\033[92mSynchronization of {} phase has finished in {}\033[0m'.format(phase, _seconds_to_hms(sync_time)))
   return sync_time
 
-
 def perform_load_test(n, steps, atoms, series, indexed_split, step_time, run_name='', sync_partitions=1,
                       randomize_start=False, sync_after_definitions=True, group_seed=0, group_name='', color=''):
 
-  # disable urllib3 logging ()
-  logging.getLogger("urllib3.connectionpool").setLevel(logging.ERROR)
-
-  log_format = '{}Group={}\x1b[0m - %(levelname)s - %(message)s'.format(color, group_name)
+  
+  log_format = '{}G-{:3}\x1b[0m - %(asctime)s - %(levelname)s - %(message)s'.format(color, group_name)
   logging.basicConfig(format=log_format)
   log = logging.getLogger('load_test')
   log.setLevel(logging.INFO)
@@ -265,7 +259,7 @@ def perform_load_test(n, steps, atoms, series, indexed_split, step_time, run_nam
 
       # print progress
       if i % ((steps/100)+1) == 0 or i == steps-1 or last_operation_info_time + 10 < time.monotonic():
-        msg = msg = 'Steps {}/{} ({:.2f}%)'.format(i, steps-1, (i+1)/steps * 100)
+        msg = msg = 'Steps {:7}/{:3} ({:5.1f}%)'.format(i, steps-1, (i+1)/steps * 100)
         last_operation_info_time = time.monotonic()
         total_eta = disk_eta + sync_eta
         log.info('{} {}. Total ETA {}'.format(msg, sync_progress_msg, _seconds_to_hms(total_eta) if total_eta > 0 else 'infinite'))
@@ -288,7 +282,7 @@ def perform_load_test(n, steps, atoms, series, indexed_split, step_time, run_nam
   stop_end_time = time.monotonic()
   stopping_time = stop_end_time - stop_started_time
   
-  log.info('Summary: total time: {} ({:.2f}), run init: {} ({:.2f}), definitions: {} ({:.2f}), training time: {} ({:.2f}), syncing time: {} ({:.2f}), stopping time {}  ({:.2f}).'.format(\
+  log.info('\033[95mSummary: total time: {} ({:.2f}), run init: {} ({:.2f}), definitions: {} ({:.2f}), training time: {} ({:.2f}), syncing time: {} ({:.2f}), stopping time {}  ({:.2f}).\033[0m'.format(\
     _seconds_to_hms(stop_end_time - start_time),\
     stop_end_time - start_time, \
     _seconds_to_hms(run_initialization_time),\
@@ -336,7 +330,7 @@ if __name__ == "__main__":
   randomize_start = args.randomize_start
   sync_after_definitions = args.sync_after_definitions
 
-  assert(series + atoms <= 99900)
+  assert(series + atoms <= 100000)
   assert(int(subprocess.check_output("ulimit -n", shell=True)) > 2000)
   assert(num_processes * n <= 1200)
   assert(num_processes * n * sync_partitions <= 10000)
@@ -347,10 +341,10 @@ if __name__ == "__main__":
      pass
 
   
-  if sync_partitions > 1 and neptune.__version__ != '1.8.3rc1.post10+69d7735':
+  if sync_partitions > 1 and neptune.__version__ != '1.8.3rc1.post13+339ab4e':
     
     logging.error('You need to have experimental version of NPT client installed. Run\n'\
-              '  pip install git+https://github.com/neptune-ai/neptune-client.git@partitioned')
+              '  pip install git+https://github.com/neptune-ai/neptune-client.git@parallelsync')
     exit(1)
 
 
