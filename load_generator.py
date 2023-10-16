@@ -71,7 +71,7 @@ def log_indexed_metrics(run, step, n, seed=0):
 
 
 # hacky way to understand if where we are in syncing run
-def _get_sync_position(runs):
+def _get_sync_position(runs, offset=0):
   last_puts = []
   last_acks = []
 
@@ -99,21 +99,84 @@ def _get_sync_position(runs):
 
   sum_puts = sum(last_puts)
   sum_acks = sum(last_acks)
-  return sum_acks, sum_puts
-
+  return sum_acks - offset, sum_puts - offset
 
 def _seconds_to_hms(seconds):
   return '{}:{:02d}:{:02d}'.format(int(seconds // 3600), int((seconds % 3600) // 60), int(seconds % 60))
 
 
-def _manual_sync_runs(runs, disk_flashing_time=8, probe_time=1, logger=None, phase=''):
+# get info about speed of syncing with NPT server
+def _get_sync_progress(runs, partitions_per_run, offset=0, progress_history=None):
+  now = time.monotonic()
+  progress_history = progress_history or {}
+  progress_history['times'] = progress_history.get('times', []) + [now]
+  acks, puts = _get_sync_position(runs, offset)
+  assert(acks <= puts)
+  progress_history['acks'] = progress_history.get('acks', []) + [acks]
+  progress_history['puts'] = progress_history.get('puts', []) + [puts]
+
+  # Only consider the last 60 seconds of data
+  last_60s = [i for i, t in enumerate(progress_history['times']) if now - t <= 60]
+  last_acks = [progress_history['acks'][i] for i in last_60s]
+  last_puts = [progress_history['puts'][i] for i in last_60s]
+
+  if len(last_60s) > 1:
+    speed_acks = (last_acks[-1] - last_acks[0]) / (progress_history['times'][last_60s[-1]] - progress_history['times'][last_60s[0]])
+    speed_puts = (last_puts[-1] - last_puts[0]) / (progress_history['times'][last_60s[-1]] - progress_history['times'][last_60s[0]])
+    progress_history['speed'] = progress_history.get('speed', []) + [(speed_acks, speed_puts)]
+  else:
+    progress_history['speed'] = progress_history.get('speed', []) + [(0, 0)]
+
+  if len(progress_history['speed']) > 1:
+    speed_acks_avg = sum([s[0] for s in progress_history['speed']]) / len(progress_history['speed'])
+    speed_puts_avg = sum([s[1] for s in progress_history['speed']]) / len(progress_history['speed'])
+    progress_history['speed_avg'] = (speed_acks_avg, speed_puts_avg)
+  else:
+    progress_history['speed_avg'] = (0, 0)
+
+  if progress_history['speed_avg'][0] == 0:
+    eta = "infinite"
+    eta_time = -1000000000
+  else:
+    eta = _seconds_to_hms((progress_history['puts'][-1] - progress_history['acks'][-1]) / progress_history['speed_avg'][0])
+    eta_time = (progress_history['puts'][-1] - progress_history['acks'][-1]) / progress_history['speed_avg'][0]
+
+  
+  requests_time = 1000 / progress_history['speed'][-1][0] * partitions_per_run if progress_history['speed'][-1][0] > 0 else 0
+  avg_request_time = 1000 / progress_history['speed_avg'][0] * partitions_per_run if progress_history['speed_avg'][0] > 0 else 0
+  
+  if requests_time < 6:
+    requests_color = '\033[92m'  # green
+  elif requests_time < 10:
+    requests_color = '\033[93m'  # yellow
+  else:
+    requests_color = '\033[91m'  # red
+
+  if avg_request_time < 6:
+    avg_requests_color = '\033[92m'  # green
+  elif avg_request_time < 10:
+    avg_requests_color = '\033[93m'  # yellow
+  else:
+    avg_requests_color = '\033[91m'  # red
+
+  msg_requests_info = 'Requests take {}{:.2f}{} ({}{:.2f}{}s)'.format(requests_color, requests_time, '\033[0m', avg_requests_color, avg_request_time, '\033[0m')
+  msg = 'Syncronization: ACK in last 60s {:.2f} (avg {:.2f}) ops/s. {}.  {} ops left to sync, sync ETA {}'.format(
+    progress_history['speed'][-1][0], progress_history['speed_avg'][0],
+    msg_requests_info,
+    progress_history['puts'][-1] - progress_history['acks'][-1],
+    eta
+  )
+  return msg, eta_time, progress_history
+
+
+def _manual_sync_runs(runs, sync_partitions, disk_flashing_time=8, probe_time=1, logger=None, phase='', sync_offset=0, sync_progress_history=None):
   # waiting for all data being flashed to a disk
   time.sleep(disk_flashing_time)
   sync_started_time = time.monotonic()
-  started_acks, started_puts = _get_sync_position(runs)
+  started_acks, started_puts = _get_sync_position(runs, sync_offset)
   disk_bottleneck_info = False
   while True:
-    acks, puts = _get_sync_position(runs)  
+    acks, puts = _get_sync_position(runs, sync_offset)  
     if started_puts != puts:
       started_puts = puts
       if logger:
@@ -123,29 +186,22 @@ def _manual_sync_runs(runs, disk_flashing_time=8, probe_time=1, logger=None, pha
     elif acks == puts:
       break
     else:
-      if acks > started_acks:
-        current_time = time.monotonic()
-        elapsed = current_time - sync_started_time
-        estimated = elapsed / (acks - started_acks) * (puts - started_acks)
-        seconds_eta = estimated - elapsed
-        # seconds eta in format hh:mm:ss
-        eta_msg = 'ETA {}'.format(_seconds_to_hms(seconds_eta))
-      else:
-        eta_msg = ''
+      sync_progress_msg, _, sync_progress_history = _get_sync_progress(runs, sync_partitions, sync_offset, sync_progress_history)
       if logger:
-        logger.info('Synchronizing {} phase: {}/{}({:.2f}%). {}'.format(phase, acks, puts, acks/puts * 100, eta_msg)) 
+        logger.info('Synchronizing {} phase: {}'.format(phase, sync_progress_msg)) 
     time.sleep(probe_time)
   
   stop_started_time = time.monotonic()
 
   sync_time = stop_started_time - sync_started_time
-  logger.info('Synchronization of {} phase has finished in {}'.format(phase, _seconds_to_hms(sync_time)))
+  logger.info('\033[92mSynchronization of {} phase has finished in {}\033[0m'.format(phase, _seconds_to_hms(sync_time)))
   return sync_time
 
 
 def perform_load_test(n, steps, atoms, series, indexed_split, step_time, run_name='', sync_partitions=1,
                       randomize_start=False, sync_after_definitions=True, group_seed=0, group_name='', color=''):
 
+  # disable urllib3 logging ()
   logging.getLogger("urllib3.connectionpool").setLevel(logging.ERROR)
 
   log_format = '{}Group={}\x1b[0m - %(levelname)s - %(message)s'.format(color, group_name)
@@ -153,6 +209,7 @@ def perform_load_test(n, steps, atoms, series, indexed_split, step_time, run_nam
   log = logging.getLogger('load_test')
   log.setLevel(logging.INFO)
 
+  # turn on experimental mode to use partitions in syncing with NPT server
   if sync_partitions > 1:
     log.warn('Turning experimental mode on with {} partitions.'.format(sync_partitions))
     os.environ['NEPTUNE_MODE'] = 'experimental'
@@ -166,62 +223,64 @@ def perform_load_test(n, steps, atoms, series, indexed_split, step_time, run_nam
     time_to_start= g_random.random() * step_time
     log.warn('Waiting for {:.2f} seconds to start'.format(time_to_start))
     time.sleep(time_to_start)
+  
   runs = [_initialize_run(run_name) for _ in range(n)]
 
   start_time = time.monotonic()                                                                                                                                                                                              
 
-  # log indexed atoms
-  for j in range(n):
-    log_indexed_atoms(runs[j], int(atoms * indexed_split), j)
-  
-  _, initial_puts = _get_sync_position(runs)
+  run_initialization_time = _manual_sync_runs(runs, sync_partitions, disk_flashing_time=6, probe_time=1, logger=log, phase='run initialization', sync_offset=0)
+  sync_offset_init, _ = _get_sync_position(runs, 0)
+  last_sync_offset = sync_offset_init
 
   sync_after_definitions_time = -1
   sync_after_definitions_time_msg = '?'
   disk_bottleneck_info = False
   last_operation_info_time = time.monotonic()
+  sync_progress_history = None
+
 
   for i in range(0, steps):                                                                                                                                                                                          
-      before = time.monotonic()
+      disk_start_time = time.monotonic()
       # log step data
-      for j in range(n):                                                                                                                                                                                      
+      for j in range(n):
         log_not_indexed_atoms(runs[j], i, int(atoms * (1-indexed_split)))
         log_not_indexed_metrics(runs[j], i, int(series * (1-indexed_split)))
+        log_indexed_atoms(runs[j], int(atoms * indexed_split), j)
         log_indexed_metrics(runs[j], i, int(series * indexed_split), j)
-      after = time.monotonic() 
-      time.sleep(max(step_time - (after - before), 0))
+      disk_end_time = time.monotonic() 
+      # wait to simulate avg. step time
+      if disk_end_time-disk_start_time > step_time:
+          if not disk_bottleneck_info:
+            logging.warn('Writing to a disk is lagging. Consider increasing the step_time {} -> {:.2f}'.format(step_time, disk_end_time-disk_start_time))
+            disk_bottleneck_info = True
+      time.sleep(max(step_time - (disk_end_time - disk_start_time), 0))
       
-      acks, puts = _get_sync_position(runs)
-      acks -= initial_puts
-      puts_per_step = (puts - initial_puts) / (i+1)
-      total_puts = int(puts_per_step * steps)
+  
+      
+      # calculate ETA
+      disk_eta = (steps - i) * step_time
 
-      elapsed_time = after - start_time
-      eta_time = elapsed_time / (i+1) * (steps - i - 1)
-      if total_puts > 0:
-        msg = 'Steps on disk {}/{} ({:.2f}%). Elapsed {} - ETA {}. '.format(
-          i, steps-1, (i+1)/steps * 100, _seconds_to_hms(elapsed_time), _seconds_to_hms(eta_time))
-        msg = msg + 'Operations synchronized with NPT server {}/{} ({:.2f}%)'.format(acks, total_puts, acks/total_puts * 100)
-        
-        if i % ((steps/100)+1) == 0 or i == steps-1 or last_operation_info_time + 10 < time.monotonic():
-          last_operation_info_time = time.monotonic()
-          log.info(msg)
-        
-        if after-before > step_time:
-            if not disk_bottleneck_info:
-              logging.warn('Writing to a disk is lagging. Consider increasing the step_time {} -> {:.2f}'.format(step_time, after-before))
-              disk_bottleneck_info = True
-            
-      else:
-        log.info('No puts yet')
+      # NPT sync diagnostics   
+      sync_progress_msg, sync_eta, sync_progress_history = _get_sync_progress(runs, sync_partitions, last_sync_offset, sync_progress_history)
 
+      # print progress
+      if i % ((steps/100)+1) == 0 or i == steps-1 or last_operation_info_time + 10 < time.monotonic():
+        msg = msg = 'Steps {}/{} ({:.2f}%)'.format(i, steps-1, (i+1)/steps * 100)
+        last_operation_info_time = time.monotonic()
+        total_eta = disk_eta + sync_eta
+        log.info('{} {}. Total ETA {}'.format(msg, sync_progress_msg, _seconds_to_hms(total_eta) if total_eta > 0 else 'infinite'))
+
+
+      # sync with NPT server after definitions of atoms and metrics
       if i == 0 and sync_after_definitions:
         sync_after_definitions_time = _manual_sync_runs(
-          runs, disk_flashing_time=6, probe_time=1, logger=log, phase='definitions')
+          runs, sync_partitions, disk_flashing_time=6, probe_time=1, logger=log, phase='definitions', sync_offset=last_sync_offset)
         sync_after_definitions_time_msg = _seconds_to_hms(sync_after_definitions_time)
+        last_sync_offset += _get_sync_position(runs, last_sync_offset)[0]
+        
   
   sync_start_time = time.monotonic()
-  sync_time = _manual_sync_runs(runs, disk_flashing_time=6, probe_time=1, logger=log, phase='training')
+  sync_time = _manual_sync_runs(runs, sync_partitions, disk_flashing_time=6, probe_time=1, logger=log, phase='training', sync_offset=last_sync_offset, sync_progress_history=None)
 
   stop_started_time = time.monotonic()
   for r in runs:
@@ -229,9 +288,11 @@ def perform_load_test(n, steps, atoms, series, indexed_split, step_time, run_nam
   stop_end_time = time.monotonic()
   stopping_time = stop_end_time - stop_started_time
   
-  log.info('Summary: total time: {} ({:.2f}), defintions: {} ({:.2f}), training time: {} ({:.2f}), syncing time: {} ({:.2f}), stopping time {}  ({:.2f}).'.format(\
+  log.info('Summary: total time: {} ({:.2f}), run init: {} ({:.2f}), definitions: {} ({:.2f}), training time: {} ({:.2f}), syncing time: {} ({:.2f}), stopping time {}  ({:.2f}).'.format(\
     _seconds_to_hms(stop_end_time - start_time),\
     stop_end_time - start_time, \
+    _seconds_to_hms(run_initialization_time),\
+    run_initialization_time,\
     sync_after_definitions_time_msg,\
     sync_after_definitions_time,\
     _seconds_to_hms(sync_start_time - start_time),\
