@@ -11,10 +11,16 @@
 
 ## Installation and setup
 
-Please install the latest vesrion of neptune client (release candidate)
+Please install the latest, with parallelized sync support version of neptune client:
+```
+ pip install git+https://github.com/neptune-ai/neptune-client.git@parallelsync
+ ```
+
+Alternatively, here is release candidate but it doesn't support the parallelized sync.
 ```
 pip install neptune==1.8.3rc2
 ```
+
 
 You need to remember about setting neptune token and project enviroments. *Use the token of the Neptune instance you want to use*.
 ```
