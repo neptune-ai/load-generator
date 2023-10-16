@@ -132,8 +132,8 @@ def _get_sync_progress(runs, partitions_per_run, offset=0, progress_history=None
     progress_history['speed'] = progress_history.get('speed', []) + [(0, 0)]
 
   if len(progress_history['speed']) > 1:
-    speed_acks_avg = sum([s[0] for s in progress_history['speed']]) / len(progress_history['speed'])
-    speed_puts_avg = sum([s[1] for s in progress_history['speed']]) / len(progress_history['speed'])
+    speed_acks_avg = acks / (now - progress_history['times'][0])
+    speed_puts_avg = puts / (now - progress_history['times'][0])
     progress_history['speed_avg'] = (speed_acks_avg, speed_puts_avg)
   else:
     progress_history['speed_avg'] = (0, 0)
