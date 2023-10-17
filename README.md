@@ -13,7 +13,7 @@
 
 Please install the latest, with parallelized sync support version of neptune client:
 ```
-  pip install git+https://github.com/neptune-ai/neptune-client.git@partitioned
+  pip install git+https://github.com/neptune-ai/neptune-client.git@dynamic-batch
  ```
 
 Alternatively, here is release candidate but it doesn't support the parallelized sync.
