@@ -217,6 +217,8 @@ def perform_load_test(n, steps, atoms, series, indexed_split, step_time, run_nam
     os.environ.pop('NEPTUNE_MODE', None)
     os.environ.pop('NEPTUNE_ASYNC_PARTITIONS_NUMBER', None)
   
+  os.environ['NEPTUNE_ALLOW_SELF_SIGNED_CERTIFICATE'] = 'TRUE'
+
   g_random = random.Random(group_seed)
   if randomize_start:
     time_to_start= g_random.random() * step_time
