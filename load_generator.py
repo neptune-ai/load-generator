@@ -85,7 +85,6 @@ def _get_sync_position(runs, offset=0, logger=None):
   last_acks = []
 
   for run in runs:
-
     path = '.neptune/async/run__{}'.format(run._id)
     os.listdir(path)
     path = os.path.join(path, os.listdir(path)[0])
@@ -94,31 +93,25 @@ def _get_sync_position(runs, offset=0, logger=None):
       # we are not using partitions
       partitions = ['']
     for p in partitions:
-      for retry in range(0,20):
-        try:
-          with open(os.path.join(path, p, 'last_ack_version'), 'r') as f:
-            last_ack = int(f.read().split('\n')[0])
-        except ValueError:
-            last_ack = -1
-        try:
-          with open(os.path.join(path, p, 'last_put_version'), 'r') as f:      
-            last_put = int(f.read().split('\n')[0])
-        except ValueError:
-            last_put = -1
-        if last_ack == -1 and last_put == -1:
-          last_acks.append(0)
-          last_puts.append(0)
-          break
-        elif last_put != -1 and last_ack != -1:
-          last_acks.append(last_ack)
-          last_puts.append(last_put)
-          break
-        else:
-          sleep_time = min(1.15**retry, 10)
-          if retry >= 16 and logger:
-            logger.warn('Waiting for a files {} to be written. Sleeping for {:.2f} seconds'.format(os.path.join(path, p), sleep_time))
-          time.sleep(sleep_time) # wait for a file to be written
 
+      def _read_step(filename, retries=100, logger=None):
+        for retry in range(0, retries):
+          try:
+            with open(filename, 'r') as f:
+              return int(f.read().split('\n')[0])
+          except ValueError:
+              sleep_time = 0.05
+              if retry == retries-1 and logger:
+                logger.warn('Waiting for a files {} to be written. Sleeping for {:.2f} seconds'.format(os.path.join(path, p), sleep_time))
+              time.sleep(sleep_time) # wait for a file to be written
+        return -1
+
+      ack_file = os.path.join(path, p, 'last_ack_version')
+      put_file = os.path.join(path, p, 'last_put_version')
+      if _read_step(ack_file, retries=1) != -1 and _read_step(put_file, retries=1) != -1:
+        last_acks.append(_read_step(ack_file, logger=logger))
+        last_puts.append(_read_step(put_file, logger=logger))
+    
   sum_puts = sum(last_puts)
   sum_acks = sum(last_acks)
   return sum_acks - offset, sum_puts - offset
@@ -157,7 +150,7 @@ def _get_sync_progress(runs, partitions_per_run, offset=0, progress_history=None
     progress_history['speed_avg'] = (0, 0)
 
   if progress_history['speed_avg'][0] == 0:
-    eta = "infinite"
+    eta = "?"
     eta_time = -1000000000
   else:
     eta_time = (progress_history['puts'][-1] - progress_history['acks'][-1]) / progress_history['speed_avg'][0]
@@ -182,21 +175,16 @@ def _get_sync_progress(runs, partitions_per_run, offset=0, progress_history=None
   return msg, eta_time, progress_history
 
 
-def _manual_sync_runs(runs, sync_partitions, disk_flashing_time=8, probe_time=1, logger=None, phase='', sync_offset=0, sync_progress_history=None):
+def _manual_sync_runs(runs, sync_partitions, disk_flashing_time=8, probe_time=10, logger=None, phase='', sync_offset=0, sync_progress_history=None):
   # waiting for all data being flashed to a disk
   time.sleep(disk_flashing_time)
   sync_started_time = time.monotonic()
   started_acks, started_puts = _get_sync_position(runs, sync_offset, logger=logger)
-  disk_bottleneck_info = False
   last_log_time = 0
   while True:
     acks, puts = _get_sync_position(runs, sync_offset, logger=logger)
     if started_puts != puts:
       started_puts = puts
-      if logger:
-        if not disk_bottleneck_info:
-          logger.warn('Disk is a bottleneck. Consider increasing the step_time or decrease number of runs.')
-          disk_bottleneck_info = True
     elif acks == puts:
       break
     else:
@@ -282,7 +270,7 @@ def perform_load_test(n, steps, atoms, series, indexed_split, step_time, run_nam
         msg = msg = 'Steps {:7}/{:3} ({:5.1f}%)'.format(i, steps-1, (i+1)/steps * 100)
         last_operation_info_time = time.monotonic()
         total_eta = disk_eta + sync_eta
-        log.info('{} {}. Total ETA {}'.format(msg, sync_progress_msg, _seconds_to_hms(total_eta) if total_eta > 0 else 'infinite'))
+        log.info('{} {}. Total ETA {}'.format(msg, sync_progress_msg, _seconds_to_hms(total_eta) if total_eta > 0 else '?'))
 
 
       # sync with NPT server after definitions of atoms and metrics
