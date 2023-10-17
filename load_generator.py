@@ -218,7 +218,9 @@ def perform_load_test(n, steps, atoms, series, indexed_split, step_time, run_nam
     os.environ.pop('NEPTUNE_MODE', None)
     os.environ.pop('NEPTUNE_ASYNC_PARTITIONS_NUMBER', None)
   
+  # specific settings for benchmarks
   os.environ['NEPTUNE_ALLOW_SELF_SIGNED_CERTIFICATE'] = 'TRUE'
+  os.environ['NEPTUNE_REQUEST_TIMEOUT'] = '90'
 
   g_random = random.Random(group_seed)
   if randomize_start:
@@ -349,10 +351,10 @@ if __name__ == "__main__":
      pass
 
   
-  if sync_partitions > 1 and neptune.__version__ != '1.8.3rc1.post13+339ab4e':
+  if sync_partitions > 1 and neptune.__version__ != '1.8.3rc2.post15+67d1d97':
     
     logging.error('You need to have experimental version of NPT client installed. Run\n'\
-              '  pip install git+https://github.com/neptune-ai/neptune-client.git@parallelsync')
+              '  pip install git+https://github.com/neptune-ai/neptune-client.git@partitioned')
     exit(1)
 
 

@@ -13,7 +13,7 @@
 
 Please install the latest, with parallelized sync support version of neptune client:
 ```
- pip install git+https://github.com/neptune-ai/neptune-client.git@parallelsync
+  pip install git+https://github.com/neptune-ai/neptune-client.git@partitioned
  ```
 
 Alternatively, here is release candidate but it doesn't support the parallelized sync.
@@ -27,6 +27,13 @@ You need to remember about setting neptune token and project enviroments. *Use t
 export NEPTUNE_API_TOKEN="YOUR TOKEN"
 export NEPTUNE_PROJECT="YOUR PROJECT" # "dzwiedziu/load-test"
 ```
+There are additional ones, that load generators sets and are adviced for benchmark set-up.
+```
+export NEPTUNE_ALLOW_SELF_SIGNED_CERTIFICATE=TRUE
+export NEPTUNE_REQUEST_TIMEOUT=90
+```
+
+
 
 It is also adviced to increase a limit of open files (neptune-client has separate sync-files for each run).
 ```
