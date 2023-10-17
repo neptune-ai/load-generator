@@ -80,7 +80,7 @@ def log_indexed_metrics(run, step, n, seed=0):
 
 
 # hacky way to understand if where we are in syncing run
-def _get_sync_position(runs, offset=0):
+def _get_sync_position(runs, offset=0, logger=None):
   last_puts = []
   last_acks = []
 
@@ -91,20 +91,33 @@ def _get_sync_position(runs, offset=0):
     path = os.path.join(path, os.listdir(path)[0])
     partitions = os.listdir(path)
     if 'partition-0' not in partitions:
-      # we are not usign partitions
+      # we are not using partitions
       partitions = ['']
     for p in partitions:
-      for i in range(0,200):
+      for retry in range(0,20):
         try:
           with open(os.path.join(path, p, 'last_ack_version'), 'r') as f:
             last_ack = int(f.read().split('\n')[0])
+        except ValueError:
+            last_ack = -1
+        try:
           with open(os.path.join(path, p, 'last_put_version'), 'r') as f:      
             last_put = int(f.read().split('\n')[0])
+        except ValueError:
+            last_put = -1
+        if last_ack == -1 and last_put == -1:
+          last_acks.append(0)
+          last_puts.append(0)
+          break
+        elif last_put != -1 and last_ack != -1:
           last_acks.append(last_ack)
           last_puts.append(last_put)
           break
-        except ValueError:
-          time.sleep(0.001)
+        else:
+          sleep_time = min(1.15**retry, 10)
+          if retry >= 16 and logger:
+            logger.warn('Waiting for a files {} to be written. Sleeping for {:.2f} seconds'.format(os.path.join(path, p), sleep_time))
+          time.sleep(sleep_time) # wait for a file to be written
 
   sum_puts = sum(last_puts)
   sum_acks = sum(last_acks)
@@ -115,11 +128,11 @@ def _seconds_to_hms(seconds):
 
 
 # get info about speed of syncing with NPT server
-def _get_sync_progress(runs, partitions_per_run, offset=0, progress_history=None):
+def _get_sync_progress(runs, partitions_per_run, offset=0, progress_history=None, logger=None):
   now = time.monotonic()
   progress_history = progress_history or {}
   progress_history['times'] = progress_history.get('times', []) + [now]
-  acks, puts = _get_sync_position(runs, offset)
+  acks, puts = _get_sync_position(runs, offset, logger=logger)
   assert(acks <= puts)
   progress_history['acks'] = progress_history.get('acks', []) + [acks]
   progress_history['puts'] = progress_history.get('puts', []) + [puts]
@@ -173,11 +186,11 @@ def _manual_sync_runs(runs, sync_partitions, disk_flashing_time=8, probe_time=1,
   # waiting for all data being flashed to a disk
   time.sleep(disk_flashing_time)
   sync_started_time = time.monotonic()
-  started_acks, started_puts = _get_sync_position(runs, sync_offset)
+  started_acks, started_puts = _get_sync_position(runs, sync_offset, logger=logger)
   disk_bottleneck_info = False
   last_log_time = 0
   while True:
-    acks, puts = _get_sync_position(runs, sync_offset)  
+    acks, puts = _get_sync_position(runs, sync_offset, logger=logger)
     if started_puts != puts:
       started_puts = puts
       if logger:
@@ -189,7 +202,7 @@ def _manual_sync_runs(runs, sync_partitions, disk_flashing_time=8, probe_time=1,
     else:
       if logger and last_log_time + 10 < time.monotonic():
         last_log_time = time.monotonic()
-        sync_progress_msg, _, sync_progress_history = _get_sync_progress(runs, sync_partitions, sync_offset, sync_progress_history)
+        sync_progress_msg, _, sync_progress_history = _get_sync_progress(runs, sync_partitions, sync_offset, sync_progress_history, logger=logger)
         logger.info('Synchronizing {} phase: {}'.format(phase, sync_progress_msg)) 
     time.sleep(probe_time)
   
@@ -230,7 +243,7 @@ def perform_load_test(n, steps, atoms, series, indexed_split, step_time, run_nam
   start_time = time.monotonic()                                                                                                                                                                                              
 
   run_initialization_time = _manual_sync_runs(runs, sync_partitions, disk_flashing_time=6, probe_time=1, logger=log, phase='run initialization', sync_offset=0)
-  sync_offset_init, _ = _get_sync_position(runs, 0)
+  sync_offset_init, _ = _get_sync_position(runs, 0, logger=log)
   last_sync_offset = sync_offset_init
 
   sync_after_definitions_time = -1
@@ -262,7 +275,7 @@ def perform_load_test(n, steps, atoms, series, indexed_split, step_time, run_nam
       disk_eta = (steps - i) * step_time
 
       # NPT sync diagnostics   
-      sync_progress_msg, sync_eta, sync_progress_history = _get_sync_progress(runs, sync_partitions, last_sync_offset, sync_progress_history)
+      sync_progress_msg, sync_eta, sync_progress_history = _get_sync_progress(runs, sync_partitions, last_sync_offset, sync_progress_history, logger=log)
 
       # print progress
       if i % ((steps/100)+1) == 0 or i == steps-1 or last_operation_info_time + 10 < time.monotonic():
@@ -277,7 +290,7 @@ def perform_load_test(n, steps, atoms, series, indexed_split, step_time, run_nam
         sync_after_definitions_time = _manual_sync_runs(
           runs, sync_partitions, disk_flashing_time=6, probe_time=1, logger=log, phase='definitions', sync_offset=last_sync_offset)
         sync_after_definitions_time_msg = _seconds_to_hms(sync_after_definitions_time)
-        last_sync_offset += _get_sync_position(runs, last_sync_offset)[0]
+        last_sync_offset += _get_sync_position(runs, last_sync_offset, logger=log)[0]
         
   
   sync_start_time = time.monotonic()
