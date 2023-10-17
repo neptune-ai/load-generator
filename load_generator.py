@@ -1,3 +1,8 @@
+import os
+
+os.environ['NEPTUNE_ALLOW_SELF_SIGNED_CERTIFICATE'] = 'TRUE'
+os.environ['NEPTUNE_REQUEST_TIMEOUT'] = '90'
+
 import argparse
 import math
 import multiprocessing as mp
@@ -127,13 +132,13 @@ def _get_sync_progress(runs, partitions_per_run, offset=0, progress_history=None
   progress_history['puts'] = progress_history.get('puts', []) + [puts]
 
   # Only consider the last 120 seconds of data
-  last_60s = [i for i, t in enumerate(progress_history['times']) if now - t <= 120]
-  last_acks = [progress_history['acks'][i] for i in last_60s]
-  last_puts = [progress_history['puts'][i] for i in last_60s]
+  last_120s = [i for i, t in enumerate(progress_history['times']) if now - t <= 120]
+  last_acks = [progress_history['acks'][i] for i in last_120s]
+  last_puts = [progress_history['puts'][i] for i in last_120s]
 
-  if len(last_60s) > 1:
-    speed_acks = (last_acks[-1] - last_acks[0]) / (progress_history['times'][last_60s[-1]] - progress_history['times'][last_60s[0]])
-    speed_puts = (last_puts[-1] - last_puts[0]) / (progress_history['times'][last_60s[-1]] - progress_history['times'][last_60s[0]])
+  if len(last_120s) > 1:
+    speed_acks = (last_acks[-1] - last_acks[0]) / (progress_history['times'][last_120s[-1]] - progress_history['times'][last_120s[0]])
+    speed_puts = (last_puts[-1] - last_puts[0]) / (progress_history['times'][last_120s[-1]] - progress_history['times'][last_120s[0]])
     progress_history['speed'] = progress_history.get('speed', []) + [(speed_acks, speed_puts)]
   else:
     progress_history['speed'] = progress_history.get('speed', []) + [(0, 0)]
@@ -151,24 +156,24 @@ def _get_sync_progress(runs, partitions_per_run, offset=0, progress_history=None
   else:
     eta_time = (progress_history['puts'][-1] - progress_history['acks'][-1]) / progress_history['speed_avg'][0]
     eta = _seconds_to_hms(eta_time)
-    if eta_time < 25:
+    if eta_time < 3 * 60: # 3 minutes
       eta_color = '\033[92m'  # green
     else:
       eta_color = '\033[91m'  # red
     eta = '{}{}{}'.format(eta_color, eta, '\033[0m')
   
   ops_left = progress_history['puts'][-1] - progress_history['acks'][-1]
-  if ops_left < 30000:
-    ops_left_msg = '\033[92m{}\033[0m'.format(ops_left)  # green
+  if ops_left < 32 * 1000 * 10: # ten requests behind
+    ops_left_msg = '\033[92m{:8}\033[0m'.format(ops_left)  # green
   else:
-    ops_left_msg = '\033[91m{}\033[0m'.format(ops_left)  # red
+    ops_left_msg = '\033[91m{:8}\033[0m'.format(ops_left)  # red
 
   if progress_history['speed'][-1][0] <= 0 and ops_left > 0:
-    speed_msg = '\033[91m0\033[0m'
+    speed_msg = '\033[94m{:7.1f}\033[0m'.format(0)
   else:
     speed_msg = '{:7.1f}'.format(progress_history['speed'][-1][0])
 
-  msg = 'Sync: ACK in last 120s {} (avg {:7.1f}) ops/s. {:7} ops left to sync, sync ETA {}'.format(
+  msg = 'Sync: ACK in last 120s {} (avg {:7.1f}) ops/s. {:7} ops left to sync, sync ETA {}.'.format(
     speed_msg,
     progress_history['speed_avg'][0],
     ops_left_msg,
@@ -193,7 +198,8 @@ def _manual_sync_runs(runs, sync_partitions, disk_flashing_time=8, probe_time=10
       if logger and last_log_time + 10 < time.monotonic():
         last_log_time = time.monotonic()
         sync_progress_msg, _, sync_progress_history = _get_sync_progress(runs, sync_partitions, sync_offset, sync_progress_history, logger=logger)
-        logger.info('Synchronizing {} phase: {}'.format(phase, sync_progress_msg)) 
+        msg = 'Synchronizing {} phase.'.format(phase)
+        logger.info('{:50} {}'.format(msg, sync_progress_msg))
     time.sleep(probe_time)
   
   stop_started_time = time.monotonic()
@@ -219,15 +225,11 @@ def perform_load_test(steps, atoms, series, indexed_split, step_time, run_name='
   else:
     os.environ.pop('NEPTUNE_MODE', None)
     os.environ.pop('NEPTUNE_ASYNC_PARTITIONS_NUMBER', None)
-  
-  # specific settings for benchmarks
-  os.environ['NEPTUNE_ALLOW_SELF_SIGNED_CERTIFICATE'] = 'TRUE'
-  os.environ['NEPTUNE_REQUEST_TIMEOUT'] = '90'
 
   g_random = random.Random(group_seed)
   if randomize_start:
     time_to_start= g_random.random() * step_time
-    log.warn('Waiting for {:.2f} seconds to start'.format(time_to_start))
+    log.info('Randomized start. Waiting {:.2f} seconds to start.'.format(time_to_start))
     time.sleep(time_to_start)
   
   # we have  1 run per subprocess
@@ -241,7 +243,6 @@ def perform_load_test(steps, atoms, series, indexed_split, step_time, run_name='
 
   sync_after_definitions_time = -1
   sync_after_definitions_time_msg = '?'
-  disk_bottleneck_info = False
   last_operation_info_time = time.monotonic()
   sync_progress_history = None
 
@@ -257,9 +258,9 @@ def perform_load_test(steps, atoms, series, indexed_split, step_time, run_name='
       disk_end_time = time.monotonic() 
       # wait to simulate avg. step time
       if disk_end_time-disk_start_time > step_time:
-          if not disk_bottleneck_info:
-            logging.warn('Writing to a disk is lagging. Consider increasing the step_time {} -> {:.2f}'.format(step_time, disk_end_time-disk_start_time))
-            disk_bottleneck_info = True
+        disk_lag = '\x1b[32mok\x1b[0m'
+      else:
+        disk_lag = '\x1b[34mlagging\x1b[0m'
       time.sleep(max(step_time - (disk_end_time - disk_start_time), 0))
       
       # calculate ETA
@@ -270,11 +271,11 @@ def perform_load_test(steps, atoms, series, indexed_split, step_time, run_name='
 
       # print progress
       if i % ((steps/100)+1) == 0 or i == steps-1 or last_operation_info_time + 10 < time.monotonic():
-        msg = msg = 'Steps {:7}/{:3} ({:5.1f}%)'.format(i, steps-1, (i+1)/steps * 100)
+        msg = 'Steps {:7}/{:3} ({:5.1f}%) (your disk is {:10}).'.format(i, steps-1, (i+1)/steps * 100, disk_lag)
         last_operation_info_time = time.monotonic()
         total_eta = disk_eta + sync_eta
-        log.info('{} {}. Total ETA {}'.format(msg, sync_progress_msg, _seconds_to_hms(total_eta) if total_eta > 0 else '?'))
-
+        # 55 to compensate colors
+        log.info('{:59} {} Total ETA {}'.format(msg, sync_progress_msg, _seconds_to_hms(total_eta) if total_eta > 0 else '?'))
 
       # sync with NPT server after definitions of atoms and metrics
       if i == 0 and sync_after_definitions:
@@ -325,7 +326,7 @@ if __name__ == "__main__":
 
   parser.add_argument('--sync-after-definitions', action='store_true')
   parser.add_argument('--no-sync-after-definitions', dest='sync_after_definitions', action='store_false')
-  parser.set_defaults(sync_after_definitions=False)
+  parser.set_defaults(sync_after_definitions=True)
   args = parser.parse_args()
 
   steps = args.steps
