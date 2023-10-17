@@ -47,30 +47,22 @@ ulimit -Sn 1000000
 20 runs, sending 20 steps every 10 seconds, in each step 100 series and 100 atoms
 
 ```
-python3 load_generator.py --processes=4 --runs 5 --steps 20 --series 100 --atoms 100 --step-time=10 --run-name='warmup' --indexed-split=0.5  > /dev/null
+python3 load_generator.py --runs 20 --steps 20 --series 100 --atoms 100 --step-time=10 --run-name='warmup' --indexed-split=0.5 --sync-partitions=32
 ```
 
 
-100 runs, sending 20 steps every 25 seconds, in each step 5000 series and 100 atoms
+50 runs, sending 20 steps every 25 seconds, in each step 5000 series and 100 atoms
 
 ```
-python3 load_generator.py --processes=10 --runs 10 --steps 20 --series 5000 --atoms 100 --step-time=25 --run-name='low 100x5000' --indexed-split=0.5  > /dev/null
+python3 load_generator.py --runs 50 --steps 20 --series 5000 --atoms 100 --step-time=25 --run-name='low 50x5000' --indexed-split=0.5 --sync-partitions=32
 ```
 
-200 runs, sending 100 steps every 25 seconds, in each step 9000 series and 500 atoms
+100 runs, sending 100 steps every 25 seconds, in each step 9000 series and 500 atoms
 
 ```
-python3 load_generator.py --processes=20 --runs 10 --steps 20 --series 9000 --atoms 500 --step-time=25 --run-name='medium 200x9500' --indexed-split=0.5  > /dev/null
+python3 load_generator.py --runs 100 --steps 20 --series 9000 --atoms 500 --step-time=25 --run-name='medium 100x9500' --indexed-split=0.5 --sync-partitions=32
 ```
 
-
-1200 runs, sending 144 (~1 hour) steps every 25 seconds, in each step 9500 series and 100 atoms
-
-This may be too big to be executed on one machine / laptop.
-
-```
-python3 load_generator.py --processes=120 --runs 10 --steps 144 --series 9500 --atoms 100 --step-time=25 --run-name='high 1200x9500' --indexed-split=0.5 > /dev/null
-```
 
 ## 100K attributes runs
 
@@ -79,18 +71,13 @@ For bigger runs you may want to use experimental version of Neptune Client, that
 pip install git+https://github.com/neptune-ai/neptune-client.git@partitioned
 ```
 
-Normally, you also need to set env variables but in this case, load generator will do it for you via setting `--sync-partitions=4` flag.
+Normally, you also need to set env variables but in this case, load generator will do it for you via setting `--sync-partitions=32` flag.
 ```
 export NEPTUNE_MODE=experimental
-export NEPTUNE_ASYNC_PARTITIONS_NUMBER=8
+export NEPTUNE_ASYNC_PARTITIONS_NUMBER=32
 ```
 
-Check it out with 4 runs
+Check it out with 5 runs
 ```
- python3 load_generator.py --processes=2 --runs 2 --steps 20 --series 99000 --atoms 100 --step-time=25 --run-name='100k 2x2 runs' --indexed-split=0.1 --sync-partitions=12 > /dev/null
- ```
-
-And now with 25 runs
-```
- python3 load_generator.py --processes=5 --runs 5 --steps 20 --series 99000 --atoms 100 --step-time=25 --run-name='100k 5x5 runs' --indexed-split=0.1 --sync-partitions=8 > /dev/null
+ python3 load_generator.py --runs 4 --steps 20 --series 100000 --step-time=25 --run-name='100k 5 runs' --indexed-split=0.1 --sync-partitions=32
  ```
