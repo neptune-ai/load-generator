@@ -1,7 +1,3 @@
-
-
-
-
 import argparse
 import math
 import multiprocessing as mp
@@ -29,7 +25,7 @@ def _initialize_run(run_name, *args, **kwargs):
 def log_not_indexed_metrics(run, step, n, seed=0):                                                                                                                                                                       
   r_vals = random.Random(seed)
   for i in range(n):                                                                                                                                                                                          
-    run[f"metrics/not_indexed/metric_{i}"].extend([step**1.1 + r_vals.random()])                                                                                                                                                                  
+    run[f"metrics/not_indexed/metric_{i}"].append(step**1.1 + r_vals.random(), step=step)
 
 
 def log_not_indexed_atoms(run, step, n, seed=0):
@@ -76,7 +72,7 @@ def log_indexed_metrics(run, step, n, seed=0):
     elif i%4 == 3:
       # value of linear
       value = a_linear * step + offset
-    run["metrics/{}".format(name)].append(value)
+    run["metrics/{}".format(name)].append(value, step=step)
 
 
 # hacky way to understand if where we are in syncing run
@@ -130,8 +126,8 @@ def _get_sync_progress(runs, partitions_per_run, offset=0, progress_history=None
   progress_history['acks'] = progress_history.get('acks', []) + [acks]
   progress_history['puts'] = progress_history.get('puts', []) + [puts]
 
-  # Only consider the last 60 seconds of data
-  last_60s = [i for i, t in enumerate(progress_history['times']) if now - t <= 60]
+  # Only consider the last 120 seconds of data
+  last_60s = [i for i, t in enumerate(progress_history['times']) if now - t <= 120]
   last_acks = [progress_history['acks'][i] for i in last_60s]
   last_puts = [progress_history['puts'][i] for i in last_60s]
 
@@ -163,13 +159,19 @@ def _get_sync_progress(runs, partitions_per_run, offset=0, progress_history=None
   
   ops_left = progress_history['puts'][-1] - progress_history['acks'][-1]
   if ops_left < 30000:
-    ops_left = '\033[92m{}\033[0m'.format(ops_left)  # green
+    ops_left_msg = '\033[92m{}\033[0m'.format(ops_left)  # green
   else:
-    ops_left = '\033[91m{}\033[0m'.format(ops_left)  # red
+    ops_left_msg = '\033[91m{}\033[0m'.format(ops_left)  # red
 
-  msg = 'Sync: ACK in last 60s {:7.1f} (avg {:7.1f}) ops/s. {:7} ops left to sync, sync ETA {}'.format(
-    progress_history['speed'][-1][0], progress_history['speed_avg'][0],
-    ops_left,
+  if progress_history['speed'][-1][0] <= 0 and ops_left > 0:
+    speed_msg = '\033[91m0\033[0m'
+  else:
+    speed_msg = '{:7.1f}'.format(progress_history['speed'][-1][0])
+
+  msg = 'Sync: ACK in last 120s {} (avg {:7.1f}) ops/s. {:7} ops left to sync, sync ETA {}'.format(
+    speed_msg,
+    progress_history['speed_avg'][0],
+    ops_left_msg,
     eta
   )
   return msg, eta_time, progress_history
@@ -200,11 +202,11 @@ def _manual_sync_runs(runs, sync_partitions, disk_flashing_time=8, probe_time=10
   logger.info('\033[92mSynchronization of {} phase has finished in {}\033[0m'.format(phase, _seconds_to_hms(sync_time)))
   return sync_time
 
-def perform_load_test(n, steps, atoms, series, indexed_split, step_time, run_name='', sync_partitions=1,
-                      randomize_start=False, sync_after_definitions=True, group_seed=0, group_name='', color=''):
+def perform_load_test(steps, atoms, series, indexed_split, step_time, run_name='', sync_partitions=1,
+                      randomize_start=False, sync_after_definitions=True, group_seed=0, group_id=0, color=''):
 
   
-  log_format = '{}G-{:3}\x1b[0m - %(asctime)s - %(levelname)s - %(message)s'.format(color, group_name)
+  log_format = '{}G-{:3}\x1b[0m - %(asctime)s - %(levelname)s - %(message)s'.format(color, group_id)
   logging.basicConfig(format=log_format)
   log = logging.getLogger('load_test')
   log.setLevel(logging.INFO)
@@ -228,7 +230,8 @@ def perform_load_test(n, steps, atoms, series, indexed_split, step_time, run_nam
     log.warn('Waiting for {:.2f} seconds to start'.format(time_to_start))
     time.sleep(time_to_start)
   
-  runs = [_initialize_run(run_name) for _ in range(n)]
+  # we have  1 run per subprocess
+  runs = [_initialize_run(run_name)]
 
   start_time = time.monotonic()                                                                                                                                                                                              
 
@@ -246,11 +249,11 @@ def perform_load_test(n, steps, atoms, series, indexed_split, step_time, run_nam
   for i in range(0, steps):                                                                                                                                                                                          
       disk_start_time = time.monotonic()
       # log step data
-      for j in range(n):
-        log_not_indexed_atoms(runs[j], i, int(atoms * (1-indexed_split)))
-        log_not_indexed_metrics(runs[j], i, int(series * (1-indexed_split)))
-        log_indexed_atoms(runs[j], int(atoms * indexed_split), j)
-        log_indexed_metrics(runs[j], i, int(series * indexed_split), j)
+      for r in runs:
+        log_not_indexed_atoms(r, i, int(atoms * (1-indexed_split)))
+        log_not_indexed_metrics(r, i, int(series * (1-indexed_split)))
+        log_indexed_atoms(r, int(atoms * indexed_split), group_id)
+        log_indexed_metrics(r, i, int(series * indexed_split), group_id)
       disk_end_time = time.monotonic() 
       # wait to simulate avg. step time
       if disk_end_time-disk_start_time > step_time:
@@ -258,8 +261,6 @@ def perform_load_test(n, steps, atoms, series, indexed_split, step_time, run_nam
             logging.warn('Writing to a disk is lagging. Consider increasing the step_time {} -> {:.2f}'.format(step_time, disk_end_time-disk_start_time))
             disk_bottleneck_info = True
       time.sleep(max(step_time - (disk_end_time - disk_start_time), 0))
-      
-  
       
       # calculate ETA
       disk_eta = (steps - i) * step_time
@@ -310,14 +311,13 @@ def perform_load_test(n, steps, atoms, series, indexed_split, step_time, run_nam
 if __name__ == "__main__":
   parser = argparse.ArgumentParser()
   parser.add_argument("--steps", type=int, default=60)
-  parser.add_argument("--runs", type=int, default=1, help='number of runs to perform per process')
+  parser.add_argument("--runs", type=int, default=1, help='number of runs to perform')
   parser.add_argument("--atoms", type=int, default=0)
   parser.add_argument("--series", type=int, default=0)
   parser.add_argument("--step-time", type=float, default=1.0)
   parser.add_argument("--indexed-split", type=float, default=0.1, help='split of indexed metrics and atoms vs not indexed')
   parser.add_argument("--run-name", type=str, default='')
   parser.add_argument("--sync-partitions", type=int, help='(experimental) number of threads per run used to sync with NPT servers', default=1)
-  parser.add_argument("--processes", type=int, help='number of processes. In total we will log runs * processes', default=1)
 
   parser.add_argument('--randomize-start', action='store_true')
   parser.add_argument('--no-randomize-start', dest='randomize_start', action='store_false')
@@ -329,29 +329,27 @@ if __name__ == "__main__":
   args = parser.parse_args()
 
   steps = args.steps
-  n = args.runs
+  n_runs = args.runs
   atoms = args.atoms
   series = args.series
   step_time = args.step_time
   sync_partitions = args.sync_partitions
   run_name = args.run_name
-  num_processes = args.processes
   indexed_split = args.indexed_split
   randomize_start = args.randomize_start
   sync_after_definitions = args.sync_after_definitions
 
   assert(series + atoms <= 100000)
   assert(int(subprocess.check_output("ulimit -n", shell=True)) > 2000)
-  assert(num_processes * n <= 1200)
-  assert(num_processes * n * sync_partitions <= 10000)
-  assert(num_processes > 0 and num_processes <= 160)
+  assert(n_runs > 0 and n_runs <= 200)
+  assert(n_runs * sync_partitions <= 10000)
   assert(indexed_split * (atoms + series) <= 10000) # 10000 is a limit of indexed fields at NPT server
 
   if series + atoms > 10000 and sync_partitions <= 1:
      pass
 
   
-  if sync_partitions > 1 and neptune.__version__ != '1.8.3rc2.post15+67d1d97':
+  if sync_partitions > 1 and neptune.__version__ != '1.8.3rc2.post16+6597fac':
     
     logging.error('You need to have experimental version of NPT client installed. Run\n'\
               '  pip install git+https://github.com/neptune-ai/neptune-client.git@partitioned')
@@ -369,17 +367,17 @@ if __name__ == "__main__":
 
   processes = [
      mp.Process(target=perform_load_test, args=(
-        n, steps, atoms, series, indexed_split, step_time,
+          steps, atoms, series, indexed_split, step_time,
           '{}-group-{}'.format(run_name, i), sync_partitions, randomize_start,
           sync_after_definitions,
           int(i+time.monotonic()*20),
           i,
           colors[i % len(colors)])
-        ) for i in range(num_processes)]
+        ) for i in range(n_runs)]
   
-  for i in range(num_processes):
+  for i in range(n_runs):
       processes[i].start()    
 
-  for i in range(num_processes):
+  for i in range(n_runs):
       processes[i].join()
   
