@@ -350,7 +350,7 @@ if __name__ == "__main__":
      pass
 
   
-  if sync_partitions > 1 and neptune.__version__ != '1.8.3rc2.post16+6597fac':
+  if sync_partitions > 1 and neptune.__version__ != '1.8.3rc2.post17+72aac98':
     
     logging.error('You need to have experimental version of NPT client installed. Run\n'\
               '  pip install git+https://github.com/neptune-ai/neptune-client.git@partitioned')
