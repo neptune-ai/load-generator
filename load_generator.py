@@ -56,8 +56,13 @@ def log_indexed_metrics(run, step, n, seed=0):
   r_vals = random.Random(seed) # values don't need to be shared
   offset = r_vals.random() * 100
   a_linear = r_vals.random() * 3
+  names = set()
   for i in range(n):
+    # to avoid name collisions
     name = _random_word(10, r_names)
+    assert name not in names
+    names.add(name)
+
     value = 0
     if i%4 == 0:
       # value of sin with period 10 steps with noise [-0.1, 0.1]
