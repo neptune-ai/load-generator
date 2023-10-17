@@ -257,7 +257,7 @@ def perform_load_test(steps, atoms, series, indexed_split, step_time, run_name='
         log_indexed_metrics(r, i, int(series * indexed_split), group_id)
       disk_end_time = time.monotonic() 
       # wait to simulate avg. step time
-      if disk_end_time-disk_start_time > step_time:
+      if disk_end_time-disk_start_time < step_time:
         disk_lag = '\x1b[32mok\x1b[0m'
       else:
         disk_lag = '\x1b[34mlagging\x1b[0m'
@@ -311,14 +311,14 @@ def perform_load_test(steps, atoms, series, indexed_split, step_time, run_name='
 
 if __name__ == "__main__":
   parser = argparse.ArgumentParser()
-  parser.add_argument("--steps", type=int, default=60)
+  parser.add_argument("--steps", type=int, default=30)
   parser.add_argument("--runs", type=int, default=1, help='number of runs to perform')
   parser.add_argument("--atoms", type=int, default=0)
   parser.add_argument("--series", type=int, default=0)
-  parser.add_argument("--step-time", type=float, default=1.0)
+  parser.add_argument("--step-time", type=float, default=20.0)
   parser.add_argument("--indexed-split", type=float, default=0.1, help='split of indexed metrics and atoms vs not indexed')
-  parser.add_argument("--run-name", type=str, default='')
-  parser.add_argument("--sync-partitions", type=int, help='(experimental) number of threads per run used to sync with NPT servers', default=1)
+  parser.add_argument("--run-name", type=str, default='load generator')
+  parser.add_argument("--sync-partitions", type=int, help='(experimental) number of threads per run used to sync with NPT servers', default=32)
 
   parser.add_argument('--randomize-start', action='store_true')
   parser.add_argument('--no-randomize-start', dest='randomize_start', action='store_false')
