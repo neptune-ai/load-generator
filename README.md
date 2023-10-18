@@ -13,7 +13,7 @@
 
 Please install the latest, with parallelized sync support version of neptune client:
 ```
-  pip install git+https://github.com/neptune-ai/neptune-client.git@dynamic-batch
+  pip install git+https://github.com/neptune-ai/neptune-client.git@partitioned
  ```
 
 Alternatively, here is release candidate but it doesn't support the parallelized sync.
@@ -67,9 +67,6 @@ python3 load_generator.py --runs 100 --steps 20 --series 9000 --atoms 500 --step
 ## 100K attributes runs
 
 For bigger runs you may want to use experimental version of Neptune Client, that parallelize the syncronization process of a run.
-```
-pip install git+https://github.com/neptune-ai/neptune-client.git@partitioned
-```
 
 Normally, you also need to set env variables but in this case, load generator will do it for you via setting `--sync-partitions=32` flag.
 ```
@@ -80,4 +77,4 @@ export NEPTUNE_ASYNC_PARTITIONS_NUMBER=32
 Check it out with 5 runs
 ```
  python3 load_generator.py --runs 4 --steps 20 --series 100000 --step-time=25 --run-name='100k 5 runs' --indexed-split=0.1 --sync-partitions=32
- ```
+```
