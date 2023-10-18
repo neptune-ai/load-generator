@@ -263,14 +263,15 @@ def perform_load_test(steps, atoms, series, indexed_split, step_time, run_name='
         disk_lag = '\x1b[34mlagging\x1b[0m'
       time.sleep(max(step_time - (disk_end_time - disk_start_time), 0))
       
-      # calculate ETA
-      disk_eta = (steps - i) * step_time
-
-      # NPT sync diagnostics   
-      sync_progress_msg, sync_eta, sync_progress_history = _get_sync_progress(runs, sync_partitions, last_sync_offset, sync_progress_history, logger=log)
-
+      
       # print progress
       if i % ((steps/100)+1) == 0 or i == steps-1 or last_operation_info_time + 10 < time.monotonic():
+        # calculate ETA
+        disk_eta = (steps - i) * step_time
+
+        # NPT sync diagnostics   
+        sync_progress_msg, sync_eta, sync_progress_history = _get_sync_progress(runs, sync_partitions, last_sync_offset, sync_progress_history, logger=log)
+
         msg = 'Steps {:7}/{:3} ({:5.1f}%) (your disk is {:10}).'.format(i, steps-1, (i+1)/steps * 100, disk_lag)
         last_operation_info_time = time.monotonic()
         total_eta = disk_eta + sync_eta
@@ -350,7 +351,7 @@ if __name__ == "__main__":
      pass
 
   
-  if sync_partitions > 1 and neptune.__version__ != '1.8.3rc2.post17+72aac98':
+  if sync_partitions > 1 and neptune.__version__ != '1.8.3rc2.post17+eb569c8':
     
     logging.error('You need to have experimental version of NPT client installed. Run\n'\
               '  pip install git+https://github.com/neptune-ai/neptune-client.git@partitioned')
